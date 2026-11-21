@@ -1,0 +1,1 @@
+{"version":"0","detail-type":"CloudWatch Alarm State Change","source":"aws.cloudwatch","detail":{"alarmName":"electioncloud-kafka-broker-down","state":{"value":"ALARM","timestamp":"2026-11-21T10:40:00.000+0000"}}}

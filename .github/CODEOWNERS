@@ -1,0 +1,12 @@
+# Review routing. Each owner reviews changes to the interface they consume (see TEAM-PLAN.md).
+# Fill in the real GitHub handles before enabling "Require review from Code Owners".
+# Placeholders below are comments on purpose: an unknown handle would silently disable the rule.
+#
+# *.py                      @ZakariaBelouad
+# cosmos_store.py web.py    @ZakariaBelouad
+# kafka_worker.py           @<Person 2 handle> @ZakariaBelouad
+# infra/aws/                @<Person 2 handle>
+# infra/gcp/                @<Person 3 handle>
+# infra/ops/                @<Oussama handle>
+# .github/                  @<Oussama handle>
+# tests/integration/        @<Oussama handle>

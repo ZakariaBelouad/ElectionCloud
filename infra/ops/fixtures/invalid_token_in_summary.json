@@ -1,0 +1,1 @@
+{"event_id":"evt-bad-0002","service":"web","severity":"warning","observed_at":"2026-11-21T10:31:00Z","status":"firing","summary":"session token leaked here"}

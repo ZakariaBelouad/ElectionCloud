@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!electioncloud.py
+!web.py
+!kafka_worker.py
+!requirements.txt
+!requirements-kafka.txt
+!requirements-cosmos.txt
+!cosmos_store.py

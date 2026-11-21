@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.db
+*.db-*
+*.sqlite*
+*.pem
+*.key
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
+*.log

@@ -39,12 +39,16 @@ def store_ballot(db, key, ciphertext):
 def relay(topic, producer, consumer, kafka_error, pending, store):
     next_publish = 0
     while True:
-        if time.monotonic() >= next_publish:
+        if producer is not None and time.monotonic() >= next_publish:
             for ballot_id, ciphertext in pending():
                 producer.produce(topic, key=ballot_id.encode("ascii"), value=ciphertext)
             next_publish = time.monotonic() + 5
 
-        producer.poll(0)
+        if producer is not None:
+            producer.poll(0)
+        if consumer is None:
+            time.sleep(0.25)
+            continue
         message = consumer.poll(0.25)
         if message is None:
             continue
@@ -90,6 +94,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path("election.db"))
     parser.add_argument("--broker", default=os.environ.get("ELECTIONCLOUD_BROKER", "127.0.0.1:9092"))
+    parser.add_argument("--role", choices=("both", "publisher", "consumer"), default="both")
     args = parser.parse_args()
     try:
         from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
@@ -107,31 +112,38 @@ def main():
             pending = partial(transaction, args.db, pending_ballots)
             store = partial(transaction, args.db, store_ballot)
         connection = broker_connection(args.broker)
-        admin = AdminClient(connection)
-        creation = admin.create_topics([NewTopic(topic, 1, 1)], request_timeout=10)
+        producer = None
+        consumer = None
+        if args.role != "consumer":
+            admin = AdminClient(connection)
+            creation = admin.create_topics([NewTopic(topic, 1, 1)], request_timeout=10)
+            try:
+                creation[topic].result()
+            except KafkaException as error:
+                if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
+                    raise
+            producer = Producer({
+                **connection,
+                "enable.idempotence": True,
+                "delivery.timeout.ms": 10000,
+            })
+            print(f"Kafka publisher ready for {topic}.", flush=True)
+        if args.role != "publisher":
+            consumer = Consumer({
+                **connection,
+                "group.id": topic + "-sqlite",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+                "allow.auto.create.topics": False,
+            })
         try:
-            creation[topic].result()
-        except KafkaException as error:
-            if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
-                raise
-        producer = Producer({
-            **connection,
-            "enable.idempotence": True,
-            "delivery.timeout.ms": 10000,
-        })
-        consumer = Consumer({
-            **connection,
-            "group.id": topic + "-sqlite",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-            "allow.auto.create.topics": False,
-        })
-        try:
-            consumer.subscribe([topic])
-            print(f"Kafka worker listening on {topic}.", flush=True)
+            if consumer is not None:
+                consumer.subscribe([topic])
+                print(f"Kafka worker listening on {topic}.", flush=True)
             relay(topic, producer, consumer, KafkaException, pending, store)
         finally:
-            consumer.close()
+            if consumer is not None:
+                consumer.close()
     except KeyboardInterrupt:
         pass
     except (sqlite3.Error, KafkaException, StorageUnavailable, ValueError) as error:

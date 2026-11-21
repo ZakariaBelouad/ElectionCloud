@@ -159,3 +159,14 @@ SQLite stores session records and encrypted ballots in separate tables. Ballot r
 The brief's target deployment uses Azure App Service, Container Apps, Cosmos DB and Key Vault, with Kafka and tally workers on AWS EC2 and notifications and recovery services on AWS and Google Cloud.
 
 See [Deploy ElectionCloud to Azure](AZURE.md) for the deployment script, environment setup, and verification steps.
+
+### Test separate Kafka processes locally
+
+With the broker running and the same demo database selected, start these commands in separate terminals. Start the publisher first so it can create the election topic. Stop the combined worker for that database before running the two processes.
+
+```powershell
+python kafka_worker.py --db kafka-demo.db --role publisher
+python kafka_worker.py --db kafka-demo.db --role consumer
+```
+
+The publisher reads the durable outbox and sends ciphertext to Kafka. The consumer stores the ballot and commits the Kafka offset. The default role is `both`, so the existing Docker Compose and single-worker commands still work.

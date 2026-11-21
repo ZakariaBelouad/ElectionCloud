@@ -7,3 +7,4 @@
 !requirements-kafka.txt
 !requirements-cosmos.txt
 !cosmos_store.py
+!app_service.py

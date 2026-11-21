@@ -9,6 +9,8 @@ param(
     [Parameter(Mandatory)][string]$CosmosContainer,
     [Parameter(Mandatory)][string]$ElectionId,
     [Parameter(Mandatory)][string]$KafkaBroker,
+    [Parameter(Mandatory)][ValidatePattern('^https://[a-z0-9-]+\.vault\.azure\.net/secrets/[a-zA-Z0-9-]+(?:/[a-fA-F0-9]+)?/?$')][string]$PublisherUsernameSecretUri,
+    [Parameter(Mandatory)][ValidatePattern('^https://[a-z0-9-]+\.vault\.azure\.net/secrets/[a-zA-Z0-9-]+(?:/[a-fA-F0-9]+)?/?$')][string]$PublisherPasswordSecretUri,
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')][string]$Tag
 )
 
@@ -41,6 +43,7 @@ if (!$site.httpsOnly -or !$auth.platform.enabled -or !$auth.globalValidation.req
 if (!$siteConfig.acrUseManagedIdentityCreds -or $siteConfig.acrUserManagedIdentityID) {
     throw 'Configure the web app to pull images using its system-assigned managed identity.'
 }
+if ($siteConfig.appCommandLine) { throw 'Clear the App Service startup command so the container can start its publisher.' }
 
 $worker = Invoke-Azure containerapp show -g $ResourceGroup -n $WorkerApp -o json | ConvertFrom-Json
 if ($worker.properties.configuration.ingress) { throw 'Disable ingress on the Kafka worker before deploying.' }
@@ -66,11 +69,15 @@ $storage = @(
     "COSMOS_DATABASE=$CosmosDatabase"
     "COSMOS_CONTAINER=$CosmosContainer"
 )
+$kafka = @(
+    'ELECTIONCLOUD_KAFKA_SECURITY_PROTOCOL=SASL_SSL'
+    "ELECTIONCLOUD_BROKER=$KafkaBroker"
+)
 
 Invoke-Azure acr login --name $Registry -o none
 Push-Location -LiteralPath $PSScriptRoot
 try {
-    Invoke-Docker buildx build --platform linux/amd64 --target web --tag $webImage --push .
+    Invoke-Docker buildx build --platform linux/amd64 --target azure-web --tag $webImage --push .
     Invoke-Docker buildx build --platform linux/amd64 --target worker --tag $workerImage --push .
 }
 finally {
@@ -78,7 +85,9 @@ finally {
 }
 
 # Use the hosted app's actual hostname, including Azure-generated suffixes.
-Invoke-Azure webapp config appsettings set -g $ResourceGroup -n $WebApp --settings @storage `
+Invoke-Azure webapp config appsettings set -g $ResourceGroup -n $WebApp --settings @storage @kafka `
+    "ELECTIONCLOUD_KAFKA_USERNAME=@Microsoft.KeyVault(SecretUri=$PublisherUsernameSecretUri)" `
+    "ELECTIONCLOUD_KAFKA_PASSWORD=@Microsoft.KeyVault(SecretUri=$PublisherPasswordSecretUri)" `
     "ELECTIONCLOUD_PUBLIC_HOST=$($site.defaultHostName)" 'WEBSITES_PORT=8767' `
     'WEBSITE_WARMUP_PATH=/healthz' 'WEBSITE_WARMUP_STATUSES=200' -o none
 Invoke-Azure webapp config container set -g $ResourceGroup -n $WebApp `
@@ -86,9 +95,9 @@ Invoke-Azure webapp config container set -g $ResourceGroup -n $WebApp `
 
 Invoke-Azure containerapp update -g $ResourceGroup -n $WorkerApp --image $workerImage `
     --command python --args kafka_worker.py --min-replicas 1 --max-replicas 1 `
-    --set-env-vars @storage "ELECTIONCLOUD_KAFKA_SECURITY_PROTOCOL=SASL_SSL" `
+    --set-env-vars @storage @kafka `
+    'ELECTIONCLOUD_KAFKA_ROLE=consumer' `
     'ELECTIONCLOUD_KAFKA_USERNAME=secretref:kafka-username' `
-    'ELECTIONCLOUD_KAFKA_PASSWORD=secretref:kafka-password' `
-    "ELECTIONCLOUD_BROKER=$KafkaBroker" -o none
+    'ELECTIONCLOUD_KAFKA_PASSWORD=secretref:kafka-password' -o none
 
 "Deployment submitted. Open https://$($site.defaultHostName)/ after the services are ready."

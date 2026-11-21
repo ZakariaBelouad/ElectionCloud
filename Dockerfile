@@ -20,3 +20,7 @@ RUN python -m pip install --no-cache-dir -r requirements-kafka.txt
 COPY kafka_worker.py .
 USER electioncloud
 CMD ["python", "kafka_worker.py", "--db", "/data/election.db", "--broker", "broker:9092"]
+
+FROM worker AS azure-web
+COPY app_service.py web.py ./
+CMD ["python", "app_service.py"]

@@ -94,8 +94,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path("election.db"))
     parser.add_argument("--broker", default=os.environ.get("ELECTIONCLOUD_BROKER", "127.0.0.1:9092"))
-    parser.add_argument("--role", choices=("both", "publisher", "consumer"), default="both")
+    roles = ("both", "publisher", "consumer")
+    parser.add_argument("--role", choices=roles)
     args = parser.parse_args()
+    args.role = args.role or os.environ.get("ELECTIONCLOUD_KAFKA_ROLE", "both")
+    if args.role not in roles:
+        parser.error("ELECTIONCLOUD_KAFKA_ROLE must be both, publisher, or consumer.")
     try:
         from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
         from confluent_kafka.admin import AdminClient, NewTopic

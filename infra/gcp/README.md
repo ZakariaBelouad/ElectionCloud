@@ -1,6 +1,6 @@
 # Google Cloud recovery
 
-The Compute Engine standby runs the same post-close tally as EC2 against the same Cosmos partition. The functions report technical health and queue fallback notifications. Each can operate independently of the other.
+The Compute Engine standby runs the same post-close tally as EC2 against the same Cosmos partition. The functions report technical health and deliver fallback notifications. Each can operate independently of the other.
 
 ## Standby host
 
@@ -33,7 +33,7 @@ Person 1 must confirm the outbox has drained, the authoritative election is clos
 
 ## Functions and Person 4 handoff
 
-Deploy three authenticated gen2 HTTP functions using the same source. Run from the repository root after approval. Configure three dedicated runtime identities. The probe identity needs only approved network access to the health endpoint. Grant the intake identity Firestore create and get access in a dedicated database/project as appropriate. The caller needs Cloud Run Invoker on its target function and sends a Google-signed ID token with the function URL as audience. Confirm that Firestore Native mode is enabled for the runtime project and that the selected database matches the default client before deploying. Grant the delivery identity only the Firestore get and update permissions and access to the specific Secret Manager version used for the webhook token.
+Deploy two authenticated gen2 HTTP functions using the same source. Run from the repository root after approval. Configure two dedicated runtime identities. The probe identity needs only approved network access to the health endpoint. Grant the fallback identity Firestore create, get and update access in a dedicated database/project as appropriate. The caller needs Cloud Run Invoker on its target function and sends a Google-signed ID token with the function URL as audience. Confirm that Firestore Native mode is enabled for the runtime project and that the selected database matches the default client before deploying. Grant the fallback identity access to the specific Secret Manager secret used for the webhook token.
 
 ```bash
 gcloud functions deploy electioncloud-health --gen2 --runtime=python313 \
@@ -45,23 +45,18 @@ gcloud functions deploy electioncloud-health --gen2 --runtime=python313 \
 gcloud functions deploy electioncloud-fallback --gen2 --runtime=python313 \
   --project='<project-id>' --region='<region>' --source=infra/gcp/functions \
   --trigger-http --no-allow-unauthenticated --entry-point=fallback_notification \
-  --service-account='<fallback-runtime-sa>'
-```
-
-Use authenticated GET for health and authenticated POST with application/json for fallback. The health function reports reachability of the configured HTTPS endpoint with a four-second request timeout. Person 4 chooses the probe target, interval and alert threshold. An approved caller maps the AWS technical signal to the [event fixture](fixtures/fallback-event.json), dropping the free-form summary. Use a globally unique technical event ID per state change and reuse it verbatim on retries. Send no election, ballot, voter or credential data.
-
-Fallback returns 202 on first enqueue, 200 on exact replay, 409 on ID reuse with changed content, 400 for an invalid payload, and 503 for retryable intake errors. Retry timeouts and 503 with bounded exponential backoff and the same JSON. Firestore atomically creates one pending document per ID. Retain IDs through the full retry and replay window. A 202 confirms intake only. After 202 or a replay response of 200, the Person 4 dispatcher calls the authenticated delivery endpoint with `{"event_id":"evt-worker-0001"}`. Retry delivery timeouts and 503 with the same ID. Arrange a dispatcher or reconciler for stale pending entries if the caller stops between intake and delivery.
-
-```bash
-gcloud functions deploy electioncloud-delivery --gen2 --runtime=python313 \
-  --project='<project-id>' --region='<region>' --source=infra/gcp/functions \
-  --trigger-http --no-allow-unauthenticated --entry-point=deliver_notification \
-  --service-account='<delivery-runtime-sa>' \
+  --service-account='<fallback-runtime-sa>' --timeout=15s \
   --set-env-vars='NOTIFICATION_WEBHOOK_URL=https://<approved-webhook-host>/<path>' \
   --set-secrets='NOTIFICATION_WEBHOOK_TOKEN=<secret-name>:<version>'
 ```
 
-The webhook receives the same technical event with a bearer credential and an Idempotency-Key header equal to the event ID. The provider must atomically deduplicate that key across concurrent requests and ambiguous timeouts, preserve it through the retry window, and return 2xx both for the first accepted send and its replay. Select and verify a provider and synthetic destination with Person 4 before activation. The delivery function marks the record delivered after provider acknowledgement, skips an already delivered event, and returns 404 for an unknown ID. On a 503, retry with bounded exponential backoff and the same ID. Keep pending records for operator reconciliation.
+Use authenticated GET for health and authenticated POST with application/json for fallback. The health function reports reachability of the configured HTTPS endpoint with a four-second request timeout. Person 4 chooses the probe target, interval and alert threshold. The AWS router uses one HTTPS POST with its existing event JSON. The fallback accepts the optional summary field and discards it before logging, storage or delivery. Send no election, ballot, voter or credential data. Use a globally unique technical event ID per state change and reuse it verbatim on retries. See the [fixture](fixtures/fallback-event.json).
+
+The fallback returns 200 after webhook acknowledgement and Firestore update, including when the event was already delivered. It returns 409 on ID reuse with changed technical content, 400 for an invalid payload, and 503 for retryable storage or delivery failures. Retry timeouts and 503 with bounded backoff and identical technical fields. Firestore atomically creates one record per ID. Retain records through the retry window.
+
+The webhook receives the technical event with a bearer credential and an Idempotency-Key header equal to the event ID. It must atomically deduplicate that key across concurrent requests and ambiguous timeouts and acknowledge an accepted replay with 2xx. The fallback marks the record delivered after acknowledgement. Confirm an approved provider and synthetic destination before activation.
+
+The current AWS Lambda sender does not attach a Google identity token and uses a short request timeout. Keep the fallback private. Person 4 must wire the AWS runtime's Google identity token using an approved cross-cloud identity flow, set its HTTP and Lambda timeouts to allow for the function response, and verify retries against the private URL. An AWS Lambda invocation without a valid ID token cannot use the endpoint.
 
 In Cloud Logging, use the JSON fields `signal`, `status`, `event_id` and `service` to diagnose requests. Configure Cloud Monitoring alerts for sustained unhealthy probes, fallback retry responses and stale pending notifications. Track the VM instance status separately. Correlate using synthetic event IDs.
 

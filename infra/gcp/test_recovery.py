@@ -56,21 +56,23 @@ class RecoveryTest(unittest.TestCase):
         client = Mock()
         client.collection.return_value.document.return_value = document
 
-        with patch("google.cloud.firestore.Client", return_value=client):
-            for status in (503, 202, 200):
+        with (patch("google.cloud.firestore.Client", return_value=client),
+              patch.object(functions, "deliver", side_effect=["delivered", "duplicate"]) as deliver):
+            for status in (503, 200, 200):
                 self.assertEqual(functions.fallback_notification(request)[1], status)
             self.assertEqual(document.create.call_args_list[1].args[0]["event_id"], event["event_id"])
             self.assertEqual(document.create.call_args_list[1].args[0]["delivery_state"], "pending")
-            client.collection.return_value.document.assert_called_with(event["event_id"])
+            client.collection.return_value.document.assert_called_with("event-" + event["event_id"])
             request.get_json = lambda **_: {**event, "status": "resolved"}
             self.assertEqual(functions.fallback_notification(request)[1], 409)
-            request.get_json = lambda **_: {**event, "summary": "unknown untrusted field"}
+            request.get_json = lambda **_: {**event, "ballot": "unknown untrusted field"}
             self.assertEqual(functions.fallback_notification(request)[1], 400)
+            self.assertEqual(deliver.call_count, 2)
         self.assertEqual(document.create.call_count, 4)
 
     def test_delivery_failure_and_ambiguous_acknowledgement(self):
         event = json.loads((GCP / "fixtures/fallback-event.json").read_text(encoding="utf-8"))
-        request = SimpleNamespace(method="POST", get_json=lambda **_: {"event_id": event["event_id"]})
+        request = SimpleNamespace(method="POST", get_json=lambda **_: {**event, "summary": "ignored"})
         record = {**event, "delivery_state": "pending"}
         document = Mock()
         document.get.return_value.exists = True
@@ -91,16 +93,28 @@ class RecoveryTest(unittest.TestCase):
 
         with patch("google.cloud.firestore.Client") as client:
             client.return_value.collection.return_value.document.return_value = document
-            with patch.object(functions, "send_notification", side_effect=provider) as sender:
-                self.assertEqual(functions.deliver_notification(request)[1], 503)
+            with (patch.object(functions, "enqueue", return_value="duplicate") as enqueue,
+                  patch.object(functions, "send_notification", side_effect=provider) as sender):
+                self.assertEqual(functions.fallback_notification(request)[1], 503)
                 document.update.assert_not_called()
-                self.assertEqual(functions.deliver_notification(request)[1], 503)
+                self.assertEqual(functions.fallback_notification(request)[1], 503)
                 self.assertEqual(record["delivery_state"], "pending")
                 document.update.side_effect = acknowledge
-                self.assertEqual(functions.deliver_notification(request), ({"status": "delivered"}, 200))
-                self.assertEqual(functions.deliver_notification(request), ({"status": "duplicate"}, 200))
+                self.assertEqual(functions.fallback_notification(request), ({"status": "delivered"}, 200))
+                self.assertEqual(functions.fallback_notification(request), ({"status": "duplicate"}, 200))
                 self.assertEqual(sender.call_count, 3)
+                enqueue.assert_called_with(event)
         self.assertEqual(delivered, {event["event_id"]})
+
+    def test_ops_router_payload(self):
+        fixture = GCP.parent / "ops" / "fixtures" / "worker_unhealthy.json"
+        event = json.loads(fixture.read_text(encoding="utf-8"))
+        request = SimpleNamespace(method="POST", get_json=lambda **_: event)
+        with (patch.object(functions, "enqueue", return_value="queued") as enqueue,
+              patch.object(functions, "deliver", return_value="delivered")):
+            self.assertEqual(functions.fallback_notification(request),
+                             ({"status": "delivered"}, 200))
+        enqueue.assert_called_once_with({key: event[key] for key in functions.REQUIRED})
 
     def test_supplemental_health(self):
         request = SimpleNamespace(method="GET")

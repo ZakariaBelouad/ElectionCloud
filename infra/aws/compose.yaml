@@ -1,0 +1,18 @@
+services:
+  broker:
+    image: apache/kafka:4.4.0
+    entrypoint: ["/bin/bash", "/assets/broker.sh"]
+    user: "1000:1000"
+    restart: on-failure
+    stop_grace_period: 60s
+    environment:
+      BROKER_DNS: ${BROKER_DNS:?Set BROKER_DNS}
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx1g"
+    extra_hosts:
+      - '${BROKER_DNS:?Set BROKER_DNS}=127.0.0.1'
+    ports:
+      - "${BROKER_BIND_IP:?Set BROKER_BIND_IP}:9094:9094"
+    volumes:
+      - .:/assets:ro
+      - "${BROKER_DATA_DIR:?Set BROKER_DATA_DIR}:/data"
+      - "${BROKER_SECRET_DIR:?Set BROKER_SECRET_DIR}:/secrets:ro"

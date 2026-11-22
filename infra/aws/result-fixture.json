@@ -1,0 +1,6 @@
+{
+  "electionId": "synthetic-aws-001",
+  "schemaVersion": 1,
+  "candidateTotals": {"Candidate A": 1, "Candidate B": 0},
+  "totalCounted": 1
+}

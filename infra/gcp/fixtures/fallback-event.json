@@ -1,0 +1,7 @@
+{
+  "event_id": "evt-worker-0001",
+  "service": "worker",
+  "severity": "critical",
+  "status": "firing",
+  "observed_at": "2026-11-21T10:00:00Z"
+}

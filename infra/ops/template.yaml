@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  ElectionCloud technical alerting (Person 4). Lambda alert router, DynamoDB deduplication table,
+  SNS administrator topic, EventBridge rule for CloudWatch alarms. Technical status only.
+  NOT DEPLOYED: provisioning is billable (small) and needs team approval first.
+
+Parameters:
+  AdminEmail:
+    Type: String
+    Default: ""
+    Description: Administrator address for notifications. Leave empty to create the topic with no subscriber.
+  FallbackUrl:
+    Type: String
+    Default: ""
+    Description: HTTPS URL of the Google Cloud fallback function (Person 3). Empty disables the fallback route.
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+
+Conditions:
+  HasAdminEmail: !Not [!Equals [!Ref AdminEmail, ""]]
+
+Resources:
+  DedupTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "electioncloud-alert-dedup-${AWS::StackName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  AdminTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "electioncloud-admin-alerts-${AWS::StackName}"
+
+  AdminSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAdminEmail
+    Properties:
+      TopicArn: !Ref AdminTopic
+      Protocol: email
+      Endpoint: !Ref AdminEmail
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/electioncloud-alert-router-${AWS::StackName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: alert-router
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt FunctionLogGroup.Arn
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:DeleteItem]
+                Resource: !GetAtt DedupTable.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AdminTopic
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt DeadLetterQueue.Arn
+
+  AlertFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: FunctionLogGroup
+    Properties:
+      FunctionName: !Sub "electioncloud-alert-router-${AWS::StackName}"
+      Runtime: python3.13
+      Handler: alert_handler.handler
+      Code: lambda/
+      Timeout: 15
+      MemorySize: 128
+      Role: !GetAtt FunctionRole.Arn
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      Environment:
+        Variables:
+          DEDUP_TABLE: !Ref DedupTable
+          ADMIN_TOPIC_ARN: !Ref AdminTopic
+          FALLBACK_URL: !Ref FallbackUrl
+
+  AsyncRetries:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref AlertFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 3600
+
+  AlarmRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Route electioncloud-* CloudWatch alarm changes to the alert router.
+      EventPattern:
+        source: [aws.cloudwatch]
+        detail-type: [CloudWatch Alarm State Change]
+        detail:
+          alarmName:
+            - prefix: electioncloud-
+      Targets:
+        - Id: alert-router
+          Arn: !GetAtt AlertFunction.Arn
+
+  AlarmRulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AlertFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AlarmRule.Arn
+
+  # The router watches itself: if it errors or cannot deliver, administrators hear about it directly
+  # through SNS, without going through the router.
+  RouterErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "ec-selfwatch-router-errors-${AWS::StackName}"
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlertFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AdminTopic]
+
+  DeliveryFailureFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref FunctionLogGroup
+      FilterPattern: '{ $.msg = "notification_failed" }'
+      MetricTransformations:
+        - MetricNamespace: ElectionCloud/Alerts
+          MetricName: NotificationFailed
+          MetricValue: "1"
+          DefaultValue: 0
+
+  DeliveryFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "ec-selfwatch-delivery-failed-${AWS::StackName}"
+      Namespace: ElectionCloud/Alerts
+      MetricName: NotificationFailed
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AdminTopic]
+
+Outputs:
+  FunctionName:
+    Value: !Ref AlertFunction
+  AdminTopicArn:
+    Value: !Ref AdminTopic
+  DeadLetterQueueUrl:
+    Value: !Ref DeadLetterQueue

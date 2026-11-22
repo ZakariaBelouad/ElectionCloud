@@ -1,0 +1,1 @@
+{"event_id":"evt-kafka-0001","service":"kafka","severity":"critical","observed_at":"2026-11-21T10:05:00Z","status":"firing","summary":"Broker unreachable from publisher"}

@@ -3,6 +3,7 @@
 import json
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,6 +160,82 @@ class SnsSenderTests(unittest.TestCase):
         self.assertEqual(client.published[0]["Message"], "b")
         with self.assertRaises(alerts.NotificationFailed):
             alerts.SnsSender("arn:aws:sns:test:topic", FakeSns(fail=True)).send({}, {"subject": "s", "body": "b"})
+
+
+class FakeResponse:
+    def __init__(self, status):
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def fake_opener(status=None, error=None):
+    """Stand-in for urlopen. Records the request; returns a status or raises like urllib does."""
+    calls = []
+
+    def opener(request, timeout):
+        calls.append({"request": request, "timeout": timeout})
+        if error is not None:
+            raise error
+        if status >= 400:
+            raise urllib.error.HTTPError(request.full_url, status, "error", {}, None)
+        return FakeResponse(status)
+
+    opener.calls = calls
+    return opener
+
+
+class GcpFallbackContractTests(unittest.TestCase):
+    URL = "https://fallback.example.test/electioncloud-fallback"
+
+    def send(self, opener, token_provider=lambda: "test-id-token"):
+        sender = alerts.HttpFallbackSender(self.URL, token_provider=token_provider, opener=opener)
+        sender.send(fixture("worker_unhealthy.json"), {"subject": "s", "body": "b"})
+
+    def test_200_is_delivered_and_carries_the_google_token(self):
+        opener = fake_opener(200)
+        self.send(opener)
+        request = opener.calls[0]["request"]
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-id-token")
+        self.assertEqual(json.loads(request.data)["event_id"], "evt-worker-0001")
+        self.assertEqual(opener.calls[0]["timeout"], 10)
+
+    def test_permanent_refusals_say_why(self):
+        for status, words in ((400, "invalid event"), (409, "different content"), (401, "ID token"), (403, "not allowed")):
+            with self.subTest(status=status), self.assertRaises(alerts.NotificationFailed) as caught:
+                self.send(fake_opener(status))
+            self.assertIn(words, str(caught.exception))
+
+    def test_503_and_timeout_are_temporary(self):
+        for opener in (fake_opener(503), fake_opener(error=TimeoutError())):
+            with self.subTest(opener=opener), self.assertRaises(alerts.NotificationFailed) as caught:
+                self.send(opener)
+            self.assertNotIn("refused", str(caught.exception))
+
+    def test_token_failure_does_not_call_the_function(self):
+        opener = fake_opener(200)
+
+        def broken():
+            raise RuntimeError("no identity")
+
+        with self.assertRaises(alerts.NotificationFailed):
+            self.send(opener, token_provider=broken)
+        self.assertEqual(opener.calls, [])
+
+    def test_fallback_503_then_200_is_delivered_once_after_retry(self):
+        dedup, primary = alerts.MemoryDedup(), alerts.MockSender("primary", fail=True)
+        event = fixture("kafka_unavailable.json")
+        down = alerts.HttpFallbackSender(self.URL, token_provider=lambda: "t", opener=fake_opener(503))
+        with self.assertRaises(alerts.NotificationFailed):
+            alerts.route(event, dedup, primary, down, log=quiet)
+        up_opener = fake_opener(200)
+        up = alerts.HttpFallbackSender(self.URL, token_provider=lambda: "t", opener=up_opener)
+        self.assertEqual(alerts.route(event, dedup, primary, up, log=quiet)["route"], "fallback")
+        self.assertEqual(len(up_opener.calls), 1)
 
 
 if __name__ == "__main__":

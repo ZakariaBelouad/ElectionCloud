@@ -1,10 +1,12 @@
 """Alert routing tests. Pure Python: no AWS, no network, no real notifications."""
 
 import json
+import os
 import sys
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "infra" / "ops" / "lambda"))
@@ -203,6 +205,22 @@ class GcpFallbackContractTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer test-id-token")
         self.assertEqual(json.loads(request.data)["event_id"], "evt-worker-0001")
         self.assertEqual(opener.calls[0]["timeout"], 10)
+
+    def test_lambda_runtime_passes_google_token_to_sender(self):
+        settings = {
+            "ADMIN_TOPIC_ARN": "test-topic", "DEDUP_TABLE": "test-table",
+            "FALLBACK_URL": self.URL, "GOOGLE_WIF_AUDIENCE": "test-audience",
+            "GOOGLE_INVOKER_SERVICE_ACCOUNT": "invoker@example.test",
+        }
+        opener = fake_opener(200)
+        with (patch.dict(os.environ, settings, clear=True),
+              patch.object(alerts, "DynamoDedup"), patch.object(alerts, "SnsSender"),
+              patch("google_identity.google_token_provider", return_value=lambda: "runtime-token") as factory,
+              patch.object(alerts.urllib.request, "urlopen", opener)):
+            _, _, fallback = alerts.build_from_environment()
+            fallback.send(fixture("worker_unhealthy.json"), {})
+        factory.assert_called_once_with(self.URL, "test-audience", "invoker@example.test")
+        self.assertEqual(opener.calls[0]["request"].get_header("Authorization"), "Bearer runtime-token")
 
     def test_permanent_refusals_say_why(self):
         for status, words in ((400, "invalid event"), (409, "different content"), (401, "ID token"), (403, "not allowed")):

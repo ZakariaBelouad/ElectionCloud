@@ -56,7 +56,7 @@ The fallback returns 200 after webhook acknowledgement and Firestore update, inc
 
 The webhook receives the technical event with a bearer credential and an Idempotency-Key header equal to the event ID. It must atomically deduplicate that key across concurrent requests and ambiguous timeouts and acknowledge an accepted replay with 2xx. The fallback marks the record delivered after acknowledgement. Confirm an approved provider and synthetic destination before activation.
 
-The current AWS Lambda sender does not attach a Google identity token and uses a short request timeout. Keep the fallback private. Person 4 must wire the AWS runtime's Google identity token using an approved cross-cloud identity flow, set its HTTP and Lambda timeouts to allow for the function response, and verify retries against the private URL. An AWS Lambda invocation without a valid ID token cannot use the endpoint.
+Keep the fallback private. Configure the Lambda execution role and Google Workload Identity Federation using the [Ops deployment instructions](../ops/README.md#deploying-the-stack-after-approval-only). Verify the live token exchange and retries against the approved private function URL.
 
 In Cloud Logging, use the JSON fields `signal`, `status`, `event_id` and `service` to diagnose requests. Configure Cloud Monitoring alerts for sustained unhealthy probes, fallback retry responses and stale pending notifications. Track the VM instance status separately. Correlate using synthetic event IDs.
 

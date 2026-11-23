@@ -51,7 +51,7 @@ CloudWatch alarms named `electioncloud-<service>-...` are picked up by the Event
 4. If SNS fails, POST the same event to the Google Cloud Function in `FALLBACK_URL`.
 5. If both fail, release the claim and raise. Lambda retries twice, then the event lands in the dead-letter queue. Because the claim was released, the retry is allowed to notify.
 
-Open point for Person 3: the fallback call is an HTTPS POST of the event JSON, and any 2xx answer counts as delivered. Change `HttpFallbackSender` if the function needs auth headers or a different shape.
+The fallback uses a Google ID token minted from the Lambda execution role via Workload Identity Federation. The private function returns HTTP 200 after successful delivery or an acknowledged replay.
 
 The router also watches itself. Two alarms (`ec-selfwatch-*`) go straight to the SNS topic, without passing through the router, when the function errors or when delivery fails on every route.
 
@@ -81,10 +81,26 @@ On `cfn-lint`: put the template path before `-i`. The `-i` option swallows the n
 
 ## Deploying the stack (after approval only)
 
+Stage the template and the Linux x86-64 Python 3.13 Lambda package from the repository root.
+
 ```powershell
-aws cloudformation package --template-file infra/ops/template.yaml --s3-bucket <bucket> --output-template-file packaged.yaml
-aws cloudformation deploy --template-file packaged.yaml --stack-name electioncloud-ops --capabilities CAPABILITY_IAM `
-  --parameter-overrides AdminEmail=<address> FallbackUrl=<https url>
+$stage = Join-Path ([IO.Path]::GetTempPath()) ('electioncloud-ops-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Path "$stage/lambda" | Out-Null
+Copy-Item infra/ops/template.yaml "$stage/template.yaml"
+Copy-Item infra/ops/lambda/*.py "$stage/lambda"
+python -m pip install --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 --implementation cp --python-version 3.13 --only-binary=:all: --target "$stage/lambda" -r infra/ops/lambda/requirements.txt
+if ($LASTEXITCODE -ne 0) { throw 'Lambda dependency staging failed.' }
+aws cloudformation package --template-file "$stage/template.yaml" --s3-bucket <bucket> --output-template-file "$stage/packaged.yaml"
+aws cloudformation deploy --template-file "$stage/packaged.yaml" --stack-name electioncloud-ops --capabilities CAPABILITY_IAM
 ```
 
-Use an authorized test destination first. Delete with `aws cloudformation delete-stack --stack-name electioncloud-ops`. The stack owns everything it creates, so that one command is the whole cleanup.
+The first deployment leaves fallback disabled and outputs AlertFunctionRoleArn. On Google Cloud, enable STS and IAM Service Account Credentials, and configure an AWS Workload Identity Federation provider for the router's AWS account. Restrict the provider condition to the STS assumed-role ARN for that exact Lambda execution role. Grant the corresponding federated role principal roles/iam.workloadIdentityUser on a dedicated Google invoker service account. Grant that service account roles/run.invoker on the fallback function's underlying Cloud Run service. Use the full IAM provider resource name starting with //iam.googleapis.com/ as GoogleWifAudience.
+
+Update the same stack using the packaged template and the approved fallback URL and invoker identity. Set FallbackUrl to the exact HTTPS URL the function accepts as its ID-token audience.
+
+```powershell
+aws cloudformation deploy --template-file "$stage/packaged.yaml" --stack-name electioncloud-ops --capabilities CAPABILITY_IAM `
+  --parameter-overrides 'FallbackUrl=<private HTTPS function URL>' 'GoogleWifAudience=<full provider resource>' 'GoogleInvokerServiceAccount=<invoker email>'
+```
+
+Allow HTTPS egress to Google STS, IAM Credentials, the private authenticated function URL and the AWS service endpoints used by the router. Verify authentication and delivery against an approved synthetic destination before enabling the shared route. Exercise a primary notification failure and replay the same event ID. Confirm one delivery and verify that an unrelated role cannot invoke the function.

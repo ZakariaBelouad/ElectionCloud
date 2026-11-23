@@ -13,9 +13,26 @@ Parameters:
     Type: String
     Default: ""
     Description: HTTPS URL of the Google Cloud fallback function (Person 3). Empty disables the fallback route.
+  GoogleWifAudience:
+    Type: String
+    Default: ""
+    Description: Full Google workload identity provider resource beginning with //iam.googleapis.com/.
+  GoogleInvokerServiceAccount:
+    Type: String
+    Default: ""
+    Description: Google service account email with Cloud Run Invoker on the fallback function.
   LogRetentionDays:
     Type: Number
     Default: 30
+
+Rules:
+  RequireFallbackIdentity:
+    RuleCondition: !Not [!Equals [!Ref FallbackUrl, ""]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref GoogleWifAudience, ""]]
+        AssertDescription: Supply GoogleWifAudience when enabling fallback.
+      - Assert: !Not [!Equals [!Ref GoogleInvokerServiceAccount, ""]]
+        AssertDescription: Supply GoogleInvokerServiceAccount when enabling fallback.
 
 Conditions:
   HasAdminEmail: !Not [!Equals [!Ref AdminEmail, ""]]
@@ -108,6 +125,8 @@ Resources:
           DEDUP_TABLE: !Ref DedupTable
           ADMIN_TOPIC_ARN: !Ref AdminTopic
           FALLBACK_URL: !Ref FallbackUrl
+          GOOGLE_WIF_AUDIENCE: !Ref GoogleWifAudience
+          GOOGLE_INVOKER_SERVICE_ACCOUNT: !Ref GoogleInvokerServiceAccount
 
   AsyncRetries:
     Type: AWS::Lambda::EventInvokeConfig

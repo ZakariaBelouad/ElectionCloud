@@ -258,10 +258,19 @@ def route(event, dedup, primary, fallback=None, log=print):
 def build_from_environment():
     topic = os.environ["ADMIN_TOPIC_ARN"]
     fallback_url = os.environ.get("FALLBACK_URL", "")
+    fallback = None
+    if fallback_url:
+        from google_identity import google_token_provider
+
+        provider = google_token_provider(
+            fallback_url, os.environ.get("GOOGLE_WIF_AUDIENCE"),
+            os.environ.get("GOOGLE_INVOKER_SERVICE_ACCOUNT"),
+        )
+        fallback = HttpFallbackSender(fallback_url, token_provider=provider)
     return (
         DynamoDedup(os.environ["DEDUP_TABLE"]),
         SnsSender(topic),
-        HttpFallbackSender(fallback_url) if fallback_url else None,
+        fallback,
     )
 
 

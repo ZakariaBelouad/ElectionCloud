@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -185,28 +186,45 @@ class SnsSender:
 
 
 class HttpFallbackSender:
-    """Fallback route: HTTPS POST of the same event to the Google Cloud Function (Person 3)."""
+    """Fallback route: authenticated HTTPS POST of the event to the Google Cloud Function (Person 3).
 
-    def __init__(self, url, timeout=5):
+    Contract from infra/gcp/README.md:
+    - 200 means delivered, also when the same event was already delivered.
+    - 400 (invalid event) and 409 (same ID, different content) are permanent refusals.
+    - 401 and 403 mean the Google ID token is missing or wrong.
+    - 503 and timeouts are temporary. The Lambda retries with the same event.
+    The function is private, so every call carries a Google ID token from token_provider.
+    """
+
+    PERMANENT = {400: "invalid event", 409: "event ID reused with different content",
+                 401: "missing or invalid Google ID token", 403: "caller not allowed to invoke the function"}
+
+    def __init__(self, url, token_provider=None, timeout=10, opener=None):
         if not url.startswith("https://"):
             raise ValueError("Fallback URL must use https.")
-        self.url, self.timeout = url, timeout
+        self.url, self.token_provider, self.timeout = url, token_provider, timeout
+        self.opener = opener or urllib.request.urlopen
 
     def send(self, event, message):
-        request = urllib.request.Request(
-            self.url,
-            data=json.dumps(event).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        headers = {"Content-Type": "application/json"}
+        if self.token_provider is not None:
+            try:
+                headers["Authorization"] = "Bearer " + self.token_provider()
+            except Exception as error:
+                raise NotificationFailed(f"fallback token unavailable: {type(error).__name__}") from error
+        request = urllib.request.Request(self.url, data=json.dumps(event).encode(), headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310 (https enforced)
-                if response.status >= 300:
-                    raise NotificationFailed(f"fallback returned HTTP {response.status}")
-        except NotificationFailed:
-            raise
+            with self.opener(request, timeout=self.timeout) as response:  # noqa: S310 (https enforced)
+                status = response.status
+        except urllib.error.HTTPError as error:
+            status = error.code
         except Exception as error:
             raise NotificationFailed(f"fallback call failed: {type(error).__name__}") from error
+        if 200 <= status < 300:
+            return
+        if status in self.PERMANENT:
+            raise NotificationFailed(f"fallback refused the event (HTTP {status}: {self.PERMANENT[status]})")
+        raise NotificationFailed(f"fallback temporarily unavailable (HTTP {status})")
 
 
 # --- routing --------------------------------------------------------------------------

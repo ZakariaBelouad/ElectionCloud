@@ -6,7 +6,7 @@
 # cosmos_store.py web.py    @ZakariaBelouad
 # kafka_worker.py           @<Person 2 handle> @ZakariaBelouad
 # infra/aws/                @<Person 2 handle>
-# infra/gcp/                @<Person 3 handle>
+# infra/oci/                @<Person 3 handle>
 # infra/ops/                @<Oussama handle>
 # .github/                  @<Oussama handle>
 # tests/integration/        @<Oussama handle>

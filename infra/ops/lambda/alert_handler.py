@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-SERVICES = ("web", "worker", "kafka", "cosmos", "tally", "alerts", "gcp-standby")
+SERVICES = ("web", "worker", "kafka", "cosmos", "tally", "alerts", "oci-standby")
 SEVERITIES = ("info", "warning", "critical")
 STATUSES = ("firing", "resolved")
 REQUIRED = ("event_id", "service", "severity", "observed_at", "status")
@@ -185,25 +185,30 @@ class SnsSender:
             raise NotificationFailed(f"SNS publish failed: {type(error).__name__}") from error
 
 
-class HttpFallbackSender:
-    """Fallback route: authenticated HTTPS POST of the event to the Google Cloud Function (Person 3).
+class RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
 
-    Contract from infra/gcp/README.md:
+
+class HttpFallbackSender:
+    """Fallback route: authenticated HTTPS POST of the event to the OCI Function (Person 3).
+
+    Contract from infra/oci/README.md:
     - 200 means delivered, also when the same event was already delivered.
     - 400 (invalid event) and 409 (same ID, different content) are permanent refusals.
-    - 401 and 403 mean the Google ID token is missing or wrong.
+    - 401 and 403 mean the bearer credential is missing or wrong.
     - 503 and timeouts are temporary. The Lambda retries with the same event.
-    The function is private, so every call carries a Google ID token from token_provider.
+    The gateway route requires a bearer credential from token_provider.
     """
 
     PERMANENT = {400: "invalid event", 409: "event ID reused with different content",
-                 401: "missing or invalid Google ID token", 403: "caller not allowed to invoke the function"}
+                 401: "missing or invalid bearer credential", 403: "caller not allowed to invoke the function"}
 
-    def __init__(self, url, token_provider=None, timeout=10, opener=None):
+    def __init__(self, url, token_provider=None, timeout=18, opener=None):
         if not url.startswith("https://"):
             raise ValueError("Fallback URL must use https.")
         self.url, self.token_provider, self.timeout = url, token_provider, timeout
-        self.opener = opener or urllib.request.urlopen
+        self.opener = opener or urllib.request.build_opener(RejectRedirects()).open
 
     def send(self, event, message):
         headers = {"Content-Type": "application/json"}
@@ -220,7 +225,7 @@ class HttpFallbackSender:
             status = error.code
         except Exception as error:
             raise NotificationFailed(f"fallback call failed: {type(error).__name__}") from error
-        if 200 <= status < 300:
+        if status == 200:
             return
         if status in self.PERMANENT:
             raise NotificationFailed(f"fallback refused the event (HTTP {status}: {self.PERMANENT[status]})")
@@ -255,17 +260,29 @@ def route(event, dedup, primary, fallback=None, log=print):
     raise NotificationFailed(f"No route delivered event {event_id}")
 
 
+def fallback_secret_provider(secret_arn):
+    from boto3 import client
+    from botocore.config import Config
+
+    secrets = client("secretsmanager", config=Config(
+        connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1},
+    ))
+
+    def token():
+        value = secrets.get_secret_value(SecretId=secret_arn)["SecretString"]
+        if not value or value != value.strip():
+            raise ValueError("Fallback bearer credential must be a nonempty string.")
+        return value
+
+    return token
+
+
 def build_from_environment():
     topic = os.environ["ADMIN_TOPIC_ARN"]
     fallback_url = os.environ.get("FALLBACK_URL", "")
     fallback = None
     if fallback_url:
-        from google_identity import google_token_provider
-
-        provider = google_token_provider(
-            fallback_url, os.environ.get("GOOGLE_WIF_AUDIENCE"),
-            os.environ.get("GOOGLE_INVOKER_SERVICE_ACCOUNT"),
-        )
+        provider = fallback_secret_provider(os.environ["FALLBACK_SECRET_ARN"])
         fallback = HttpFallbackSender(fallback_url, token_provider=provider)
     return (
         DynamoDedup(os.environ["DEDUP_TABLE"]),

@@ -156,7 +156,7 @@ Cosmos keeps voter markers, one-time sessions, outbox entries, and ballots as di
 
 SQLite stores session records and encrypted ballots in separate tables. Ballot rows contain a random technical ID and encrypted candidate ID. For this local demo, the database and tally key are files controlled by the operator. Keep the unencrypted private key in a restricted location. The close check is enforced by the CLI, and an operator with access to the key and database can decrypt ballots independently. Database or filesystem observers may be able to correlate voting activity. Use this prototype with synthetic data only.
 
-The brief's target deployment uses Azure App Service, Container Apps, Cosmos DB and Key Vault, with Kafka and tally workers on AWS EC2 and notifications and recovery services on AWS and Google Cloud.
+The brief's target deployment uses Azure App Service, Container Apps, Cosmos DB and Key Vault, with Kafka and tally workers on AWS EC2 and notifications and recovery services on AWS and Oracle Cloud.
 
 See [Deploy ElectionCloud to Azure](AZURE.md) for the deployment script, environment setup, and verification steps.
 

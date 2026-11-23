@@ -19,7 +19,7 @@ Owner: Oussama. Fill this in when you cut a release. Keep one copy per release t
 | Azure web, publisher, worker, Cosmos | Zakaria | env names, `/healthz`, topic name | | | |
 | Kafka EC2 | Zelmati | broker DNS and port, TLS, ACL scope | | | |
 | Tally EC2 | Zelmati | tally command, result schema | | | |
-| Google standby and functions | Mesbah | tally invocation, fallback event | | | |
+| Oracle standby and functions | Mesbah | tally invocation, fallback event | | | |
 | Lambda alerts | Oussama | alert event schema | | | |
 
 ## Before the rehearsal
@@ -47,7 +47,7 @@ Write one expected and one observed result per line. "Local" means the Compose s
 | 9 | Publish results | One result published, shown on the dashboard after close only | | Cloud | |
 | 10 | Technical alert | Simulated Kafka or worker alert reaches the test destination once, repeating it adds nothing | | Local (mock), Cloud | |
 | 11 | Notification failure | Primary route down, fallback delivers | | Local (mock), Cloud | |
-| 12 | Google standby tally | Same totals as the primary | | Cloud | |
+| 12 | Oracle standby tally | Same totals as the primary | | Cloud | |
 | 13 | Failover guard | Only one tally is published for the election | | Cloud | |
 
 ## After the rehearsal

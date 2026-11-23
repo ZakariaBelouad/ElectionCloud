@@ -38,6 +38,10 @@ jobs:
         run: python -m compileall -q .
       - name: Unit and integration tests
         run: python -m unittest discover -s tests -t . -v
+      - name: Verify Oracle standby and fallback
+        run: |
+          python infra/aws/test_tally.py
+          python infra/oci/test_recovery.py
       - name: Validate the CloudFormation template
         # W3002: the Lambda code path only resolves with `aws cloudformation package`.
         run: cfn-lint infra/ops/template.yaml -i W3002

@@ -6,7 +6,7 @@ Four teammates work from separate clones of one private Git repository. Zakaria 
 | --- | --- | --- | --- |
 | Zakaria Belouad (Person 1) | Azure application, storage, identity, dashboard, and deployment | `team/azure-app` | `web.py`, `cosmos_store.py`, `deploy-azure.ps1`, `AZURE.md` |
 | Mohammed Reda Zelmati (Person 2) | AWS EC2 Kafka and separate EC2 tally host | `team/aws-kafka-tally` | `infra/aws/` |
-| Saad Mesbah (Person 3) | Google Compute Engine standby and Google Cloud Functions | `team/gcp-recovery` | `infra/gcp/` |
+| Saad Mesbah (Person 3) | OCI Compute standby and OCI Functions | `team/oci-recovery` | `infra/oci/` |
 | Oussama Benachour (Person 4) | AWS Lambda alerts, monitoring integration, Git workflow and end-to-end QA | `team/ops-integration` | `infra/ops/`, `.github/workflows/`, `tests/integration/` |
 
 Person 1 owns shared application changes. Person 2 proposes changes to tally interfaces, Person 3 proposes changes to recovery interfaces, and Person 4 reviews interface changes and owns the integration checklist. Coordinate before editing shared files such as the Dockerfile, Compose configuration, requirements, or core voting code.
@@ -15,7 +15,7 @@ Person 1 owns shared application changes. Person 2 proposes changes to tally int
 
 - **Azure PaaS.** App Service hosts the voting UI and API. Container Apps runs the Kafka consumer. Cosmos DB holds voter and election data and encrypted ballots in distinct logical records. Entra ID handles staff access, Application Gateway with WAF protects the hosted web edge, Key Vault holds deployment secrets, and Azure Monitor covers the Azure services.
 - **AWS IaaS and FaaS.** A dedicated EC2 VM hosts Apache Kafka. A separate EC2 VM runs the post-close tally. Lambda handles technical alerts and administrator notifications, with CloudWatch for AWS monitoring.
-- **Google Cloud IaaS and FaaS.** Compute Engine provides standby tally capacity. Google Cloud Functions provides supplemental checks and fallback notifications. Google Cloud Monitoring covers the Google Cloud services.
+- **Oracle Cloud IaaS and FaaS.** OCI Compute provides standby tally capacity. OCI Functions runs the supplemental health check and fallback notifications. OCI Monitoring covers the Oracle Cloud services.
 - **Ballot flow.** The Azure app queues encrypted ballots. The existing durable outbox is relayed through Kafka by the Container Apps worker, which also consumes and stores ballots. The fiche assigns the producer to App Service. Person 1 owns moving the relay/producer to the App Service side while preserving outbox recovery. Person 2 owns Kafka broker configuration and validates the producer/consumer contract. Keep the consumer in Container Apps.
 - **Election rules.** One vote per verified voter, no voter identity or session token in Kafka, acceptance only after durable ballot storage, turnout during voting, and results only after closure. Local SQLite and the Cosmos emulator remain usable for development. A single Kafka broker is sufficient for the class demo.
 
@@ -31,7 +31,7 @@ Person 1 owns shared application changes. Person 2 proposes changes to tally int
 - **First, agree on interfaces.** Person 1 publishes the environment-variable names and health event fields. Person 2 confirms the Kafka topic and auth contract and drafts the tally result schema with Person 1. Person 3 uses that same tally schema. Person 4 records the contracts and builds alert fixtures.
 - **Then work in parallel.** Person 1 uses Docker Kafka and a Cosmos emulator. Person 2 uses synthetic election fixtures and a test Kafka client. Person 3 runs the same tally command against synthetic fixtures, with no dependency on a live incident. Person 4 builds CI and alert simulations.
 - **Join the cloud pieces.** Person 2 hands Person 1 a private broker DNS name and port, TLS trust requirements, and Kafka ACL scope. Person 1 hands Persons 2 and 3 the Cosmos endpoint, election ID, and operator access requirements. Person 3 hands Person 4 the fallback invocation contract. Transfer credentials through secret stores.
-- **Rehearse once together.** Issue and cast a synthetic ballot, verify durable receipt and replay handling, show turnout before close, close the election, run the AWS tally and show results, simulate a technical alert, then rehearse the Google Cloud standby tally and fallback notification. Confirm only one tally is published during failover. Capture version, logs, and expected versus actual results without exposing tokens or keys.
+- **Rehearse once together.** Issue and cast a synthetic ballot, verify durable receipt and replay handling, show turnout before close, close the election, run the AWS tally and show results, simulate a technical alert, then rehearse the Oracle Cloud standby tally and fallback notification. Confirm only one tally is published during failover. Capture version, logs, and expected versus actual results without exposing tokens or keys.
 
 For Cloud deployment, one teammate should own each cloud account or resource group. All four should use separate Git identities and individual cloud access. A successful local test and a verified hosted deployment are separate milestones.
 

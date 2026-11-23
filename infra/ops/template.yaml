@@ -12,15 +12,12 @@ Parameters:
   FallbackUrl:
     Type: String
     Default: ""
-    Description: HTTPS URL of the Google Cloud fallback function (Person 3). Empty disables the fallback route.
-  GoogleWifAudience:
+    Description: HTTPS URL of the OCI API Gateway fallback route (Person 3). Empty disables the fallback route.
+  FallbackSecretArn:
     Type: String
-    Default: ""
-    Description: Full Google workload identity provider resource beginning with //iam.googleapis.com/.
-  GoogleInvokerServiceAccount:
-    Type: String
-    Default: ""
-    Description: Google service account email with Cloud Run Invoker on the fallback function.
+    Default: "arn:aws:secretsmanager:us-east-1:000000000000:secret:fallback-disabled"
+    AllowedPattern: "arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+"
+    Description: AWS Secrets Manager ARN holding the Oracle fallback bearer credential as plain secret text.
   LogRetentionDays:
     Type: Number
     Default: 30
@@ -29,12 +26,11 @@ Rules:
   RequireFallbackIdentity:
     RuleCondition: !Not [!Equals [!Ref FallbackUrl, ""]]
     Assertions:
-      - Assert: !Not [!Equals [!Ref GoogleWifAudience, ""]]
-        AssertDescription: Supply GoogleWifAudience when enabling fallback.
-      - Assert: !Not [!Equals [!Ref GoogleInvokerServiceAccount, ""]]
-        AssertDescription: Supply GoogleInvokerServiceAccount when enabling fallback.
+      - Assert: !Not [!Equals [!Ref FallbackSecretArn, "arn:aws:secretsmanager:us-east-1:000000000000:secret:fallback-disabled"]]
+        AssertDescription: Supply FallbackSecretArn when enabling fallback.
 
 Conditions:
+  HasFallback: !Not [!Equals [!Ref FallbackUrl, ""]]
   HasAdminEmail: !Not [!Equals [!Ref AdminEmail, ""]]
 
 Resources:
@@ -106,6 +102,12 @@ Resources:
               - Effect: Allow
                 Action: sqs:SendMessage
                 Resource: !GetAtt DeadLetterQueue.Arn
+              - !If
+                - HasFallback
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Ref FallbackSecretArn
+                - !Ref AWS::NoValue
 
   AlertFunction:
     Type: AWS::Lambda::Function
@@ -115,7 +117,7 @@ Resources:
       Runtime: python3.13
       Handler: alert_handler.handler
       Code: lambda/
-      Timeout: 30
+      Timeout: 45
       MemorySize: 128
       Role: !GetAtt FunctionRole.Arn
       DeadLetterConfig:
@@ -125,8 +127,7 @@ Resources:
           DEDUP_TABLE: !Ref DedupTable
           ADMIN_TOPIC_ARN: !Ref AdminTopic
           FALLBACK_URL: !Ref FallbackUrl
-          GOOGLE_WIF_AUDIENCE: !Ref GoogleWifAudience
-          GOOGLE_INVOKER_SERVICE_ACCOUNT: !Ref GoogleInvokerServiceAccount
+          FALLBACK_SECRET_ARN: !If [HasFallback, !Ref FallbackSecretArn, ""]
 
   AsyncRetries:
     Type: AWS::Lambda::EventInvokeConfig

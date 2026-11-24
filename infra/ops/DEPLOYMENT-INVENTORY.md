@@ -17,9 +17,9 @@ Status words: **none** means nothing in the repository yet, **code** means code 
 | AWS | EC2 for tally | Post-close count | Zelmati | none | none | Tally output matching the fixture |
 | AWS | Lambda | Technical alerts, admin notifications | Oussama | `infra/ops/lambda/` | code (local tests) | Run against an authorized test destination |
 | AWS | CloudWatch | AWS monitoring | Oussama | `infra/ops/template.yaml` | code (lint only) | Alarms in OK or ALARM, alarm routed to Lambda |
-| Google Cloud | Compute Engine standby | Standby tally | Mesbah | none (`infra/gcp/` absent) | none | Standby tally equal to primary |
-| Google Cloud | Cloud Functions | Supplemental checks, fallback notifications | Mesbah | none | none | Invocation with the fallback event, one notification on repeat |
-| Google Cloud | Cloud Monitoring | Google service monitoring | Mesbah | none | none | Signal that triggers the fallback |
+| Oracle Cloud | OCI Compute standby | Standby tally | Mesbah | code (local tests) | code | Standby tally equal to primary |
+| Oracle Cloud | OCI Functions | Supplemental checks, fallback notifications | Mesbah | code (setup documented) | code | Invocation with the fallback event, one notification on repeat |
+| Oracle Cloud | OCI Monitoring | Google service monitoring | Mesbah | code (setup documented) | code | Signal that triggers the fallback |
 | Shared | GitHub Actions CI | PR checks | Oussama | `.github/workflows/ci.yml` | code (first run pending) | Green run on a PR |
 
 ## Cross-provider contracts to confirm
@@ -30,4 +30,4 @@ Status words: **none** means nothing in the repository yet, **code** means code 
 | Kafka topic, auth and ACL scope | Zelmati to Zakaria | `infra/aws/` |
 | Tally result schema (election ID, schema version, totals, total counted) | Zelmati, Zakaria, Mesbah | `infra/aws/` |
 | Alert event schema | Oussama to everyone | `infra/ops/README.md` |
-| Fallback invocation | Mesbah to Oussama | `infra/gcp/` |
+| Fallback invocation | Mesbah to Oussama | `infra/oci/` |

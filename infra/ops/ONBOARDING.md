@@ -16,7 +16,7 @@ docker compose -p ec-local up -d --wait
 python tests/integration/smoke_compose.py
 ```
 
-Branches: `team/azure-app`, `team/aws-kafka-tally`, `team/gcp-recovery`, `team/ops-integration`.
+Branches: `team/azure-app`, `team/aws-kafka-tally`, `team/oci-recovery`, `team/ops-integration`.
 
 ## Daily flow
 
@@ -51,5 +51,5 @@ Each teammate fills in one row in their first PR, or Oussama fills it in from th
 | --- | --- | --- | --- | --- |
 | Zakaria Belouad | | `team/azure-app` | | |
 | Mohammed Reda Zelmati | | `team/aws-kafka-tally` | | |
-| Saad Mesbah | | `team/gcp-recovery` | | |
+| Saad Mesbah | | `team/oci-recovery` | | |
 | Oussama Benachour | | `team/ops-integration` | `3cef265` | |

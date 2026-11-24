@@ -191,39 +191,38 @@ def fake_opener(status=None, error=None):
     return opener
 
 
-class GcpFallbackContractTests(unittest.TestCase):
+class OciFallbackContractTests(unittest.TestCase):
     URL = "https://fallback.example.test/electioncloud-fallback"
 
     def send(self, opener, token_provider=lambda: "test-id-token"):
         sender = alerts.HttpFallbackSender(self.URL, token_provider=token_provider, opener=opener)
         sender.send(fixture("worker_unhealthy.json"), {"subject": "s", "body": "b"})
 
-    def test_200_is_delivered_and_carries_the_google_token(self):
+    def test_200_is_delivered_and_carries_the_oci_token(self):
         opener = fake_opener(200)
         self.send(opener)
         request = opener.calls[0]["request"]
         self.assertEqual(request.get_header("Authorization"), "Bearer test-id-token")
         self.assertEqual(json.loads(request.data)["event_id"], "evt-worker-0001")
-        self.assertEqual(opener.calls[0]["timeout"], 10)
+        self.assertEqual(opener.calls[0]["timeout"], 18)
 
-    def test_lambda_runtime_passes_google_token_to_sender(self):
+    def test_lambda_runtime_passes_oci_token_to_sender(self):
         settings = {
             "ADMIN_TOPIC_ARN": "test-topic", "DEDUP_TABLE": "test-table",
-            "FALLBACK_URL": self.URL, "GOOGLE_WIF_AUDIENCE": "test-audience",
-            "GOOGLE_INVOKER_SERVICE_ACCOUNT": "invoker@example.test",
+            "FALLBACK_URL": self.URL, "FALLBACK_SECRET_ARN": "test-secret-arn",
         }
         opener = fake_opener(200)
         with (patch.dict(os.environ, settings, clear=True),
               patch.object(alerts, "DynamoDedup"), patch.object(alerts, "SnsSender"),
-              patch("google_identity.google_token_provider", return_value=lambda: "runtime-token") as factory,
-              patch.object(alerts.urllib.request, "urlopen", opener)):
+              patch.object(alerts, "fallback_secret_provider", return_value=lambda: "runtime-token") as factory,
+              patch.object(alerts.urllib.request, "build_opener", return_value=type("Opener", (), {"open": staticmethod(opener)})())):
             _, _, fallback = alerts.build_from_environment()
             fallback.send(fixture("worker_unhealthy.json"), {})
-        factory.assert_called_once_with(self.URL, "test-audience", "invoker@example.test")
+        factory.assert_called_once_with("test-secret-arn")
         self.assertEqual(opener.calls[0]["request"].get_header("Authorization"), "Bearer runtime-token")
 
     def test_permanent_refusals_say_why(self):
-        for status, words in ((400, "invalid event"), (409, "different content"), (401, "ID token"), (403, "not allowed")):
+        for status, words in ((400, "invalid event"), (409, "different content"), (401, "bearer"), (403, "not allowed")):
             with self.subTest(status=status), self.assertRaises(alerts.NotificationFailed) as caught:
                 self.send(fake_opener(status))
             self.assertIn(words, str(caught.exception))

@@ -52,4 +52,4 @@ Each teammate fills in one row in their first PR, or Oussama fills it in from th
 | Zakaria Belouad | | `team/azure-app` | | |
 | Mohammed Reda Zelmati | | `team/aws-kafka-tally` | | |
 | Saad Mesbah | | `team/oci-recovery` | | |
-| Oussama Benachour | | `team/ops-integration` | `3cef265` | |
+| Oussama Benachour | `C:\projet-cloud\ElectionCloud` | `team/ops-integration` | `3cef265` | Unit tests pass, Compose smoke test 11/11 |

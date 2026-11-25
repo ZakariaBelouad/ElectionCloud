@@ -42,9 +42,9 @@ jobs:
         run: |
           python infra/aws/test_tally.py
           python infra/oci/test_recovery.py
-      - name: Validate the CloudFormation template
+      - name: Validate the CloudFormation templates
         # W3002: the Lambda code path only resolves with `aws cloudformation package`.
-        run: cfn-lint infra/ops/template.yaml -i W3002
+        run: cfn-lint infra/ops/template.yaml infra/ops/test-webhook.yaml -i W3002
 
   docker:
     name: Docker build and synthetic vote

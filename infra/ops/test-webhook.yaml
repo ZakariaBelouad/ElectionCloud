@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  ElectionCloud TEST ONLY. HTTPS webhook that receives the OCI fallback notifications (Person 3)
+  during rehearsal. Checks the bearer, accepts each Idempotency-Key once for 24 hours, logs technical
+  fields only, answers 200 (replays included). Delete after the demo.
+
+Resources:
+  WebhookSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Bearer the OCI fallback function sends to the test webhook (WEBHOOK_SECRET_OCID on the OCI side).
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  SeenTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: idempotency_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: idempotency_key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/electioncloud-test-webhook-${AWS::StackName}"
+      RetentionInDays: 7
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: test-webhook
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt LogGroup.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref WebhookSecret
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt SeenTable.Arn
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: LogGroup
+    Properties:
+      FunctionName: !Sub "electioncloud-test-webhook-${AWS::StackName}"
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 5
+      MemorySize: 128
+      Role: !GetAtt Role.Arn
+      Environment:
+        Variables:
+          SECRET_ARN: !Ref WebhookSecret
+          SEEN_TABLE: !Ref SeenTable
+      Code:
+        ZipFile: |
+          import base64, hmac, json, os, time
+          import boto3
+          from botocore.exceptions import ClientError
+
+          FIELDS = ("event_id", "service", "severity", "observed_at", "status")
+          _secret = None
+          _table = None
+
+          def _first_time(key):
+              global _table
+              if _table is None:
+                  _table = boto3.resource("dynamodb").Table(os.environ["SEEN_TABLE"])
+              try:
+                  _table.put_item(Item={"idempotency_key": key, "expires_at": int(time.time()) + 86400},
+                                  ConditionExpression="attribute_not_exists(idempotency_key)")
+                  return True
+              except ClientError as error:
+                  if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                      return False
+                  raise
+
+          def _expected():
+              global _secret
+              if _secret is None:
+                  client = boto3.client("secretsmanager")
+                  _secret = client.get_secret_value(SecretId=os.environ["SECRET_ARN"])["SecretString"]
+              return _secret
+
+          def _reply(code, body):
+              return {"statusCode": code, "headers": {"Content-Type": "application/json"},
+                      "body": json.dumps(body)}
+
+          def handler(event, context):
+              method = event.get("requestContext", {}).get("http", {}).get("method")
+              if method != "POST":
+                  return _reply(405, {"error": "method_not_allowed"})
+              headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+              given = headers.get("authorization", "").encode()
+              if not hmac.compare_digest(given, ("Bearer " + _expected()).encode()):
+                  print(json.dumps({"msg": "unauthorized"}))
+                  return _reply(401, {"error": "unauthorized"})
+              body = event.get("body") or ""
+              if event.get("isBase64Encoded"):
+                  body = base64.b64decode(body).decode("utf-8", "replace")
+              try:
+                  data = json.loads(body)
+              except ValueError:
+                  data = None
+              if not isinstance(data, dict):
+                  print(json.dumps({"msg": "invalid_body"}))
+                  return _reply(400, {"error": "invalid_body"})
+              key = headers.get("idempotency-key", "")
+              if not key or len(key) > 128:
+                  print(json.dumps({"msg": "missing_idempotency_key"}))
+                  return _reply(400, {"error": "missing_idempotency_key"})
+              if not _first_time(key):
+                  print(json.dumps({"msg": "duplicate", "idempotency_key": key}))
+                  return _reply(200, {"received": True, "duplicate": True})
+              print(json.dumps({"msg": "received", "idempotency_key": key,
+                                "event": {k: data.get(k) for k in FIELDS}}))
+              return _reply(200, {"received": True, "duplicate": False})
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt Function.Arn
+
+  UrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  UrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  WebhookUrl:
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  WebhookSecretArn:
+    Value: !Ref WebhookSecret

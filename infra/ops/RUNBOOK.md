@@ -79,6 +79,7 @@ Fill these in when resources are approved. A resource without a named owner does
 | AWS `electioncloud-test-webhook` stack (eu-north-1, includes one Secrets Manager secret and one DynamoDB table) | Oussama, 2026-11-24 | Oussama | `aws cloudformation delete-stack --stack-name electioncloud-test-webhook` | |
 | AWS deploy bucket `electioncloud-ops-deploy-<account>-eu-north-1` | Oussama, 2026-11-24 | Oussama | `aws s3 rb "s3://$BUCKET" --force` after both stacks are gone | |
 | AWS fallback caller secret `electioncloud/oci-fallback-caller` (Secrets Manager) | Oussama, 2026-11-25 | Oussama | `aws secretsmanager delete-secret --secret-id electioncloud/oci-fallback-caller` | |
+| AWS EventBridge `default` bus permission (eu-north-1) letting Zelmati's account `057481081884` put events | Oussama, 2026-11-25 | Oussama | `aws events remove-permission --region eu-north-1 --event-bus-name default --statement-id electioncloud-kafka-frankfurt` | |
 | Oracle standby VM and functions | TBD | TBD | TBD | |
 
 ## Evidence collected
@@ -102,10 +103,10 @@ One line per piece of sanitized evidence, with owner, date and commit. All AWS c
 | 2026-11-25 | Oussama, Mesbah | Same test after Mesbah fixed the IAM policy for the caller secret (`evt-rehearsal-1795578727`, 03:52 UTC) | Route gives 403 to a wrong bearer, and the router's bearer was accepted (no 403), so the caller secret matches on both sides. Still HTTP 503 after the check, `notification_failed`, no call reached the test webhook. Mesbah's log: the PUT to the `electioncloud-fallback-events` bucket got 404, `fallback_error` `ServiceError`. Configuration restored and checked |
 | 2026-11-25 | Oussama, Mesbah | Same test after Mesbah granted the function access to the bucket objects (`evt-rehearsal-1795579110`, 03:58 UTC) | Lambda result `{"result": "sent", "route": "fallback"}`. Router logs `primary_failed` (`AuthorizationErrorException`) then `sent` `"route": "fallback"`. Test webhook logs one `received` line for that ID, without the `summary` field. Configuration restored and checked |
 | 2026-11-25 | Mesbah, Oussama | Replay of the same POST directly on the OCI route (`evt-rehearsal-1795579110`, 04:00:33 UTC) | OCI answered 200 `{"status": "duplicate"}`. The test webhook got no new call and still has exactly one `received` line for that ID |
+| 2026-11-25 | Zelmati, Oussama | Alarm `electioncloud-kafka-ec2-status` (Zelmati's account, eu-central-1) forwarded to the `default` bus in eu-north-1 | Router invoked at 04:33:42 UTC, `{"msg": "sent", "route": "primary", "event_id": "cw-596ce45d6eba17628653fd92"}` at 04:33:48. No `electioncloud-*` alarm exists in Oussama's account, so the event came from Zelmati's. One "ElectionCloud kafka" email received at the demo address |
 | 2026-11-25 | Oussama | Test webhook with Idempotency-Key deduplication, same key posted twice | First POST 200 `"duplicate": false` and a `received` log line, replay 200 `"duplicate": true` and only a `duplicate` log line, no key 400, wrong bearer 401 |
 
 ## Still pending
 
 List every check that was only done locally or with mocks, with the owner who can close it. The starting point is the "Status" column of `DEPLOYMENT-INVENTORY.md`.
 
-- An `electioncloud-*` CloudWatch alarm from the Kafka or tally EC2 reaching the router through EventBridge. Zelmati and Oussama.

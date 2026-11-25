@@ -15,11 +15,11 @@ Status words: **none** means nothing in the repository yet, **code** means code 
 | Azure | Azure Monitor | Azure service monitoring | Zakaria | none | none | Alert rules or dashboard, exported |
 | AWS | EC2 for Kafka | Broker, SASL_SSL, ACLs | Zelmati | none (`infra/aws/` absent) | none | Producer and consumer test through the private route |
 | AWS | EC2 for tally | Post-close count | Zelmati | none | none | Tally output matching the fixture |
-| AWS | Lambda | Technical alerts, admin notifications | Oussama | `infra/ops/lambda/` | verified 2026-11-24 (stack `electioncloud-ops`, eu-north-1) | OCI fallback route, see `RUNBOOK.md` |
+| AWS | Lambda | Technical alerts, admin notifications | Oussama | `infra/ops/lambda/` | verified 2026-11-24 (stack `electioncloud-ops`, eu-north-1), fallback to OCI verified 2026-11-25 | |
 | AWS | CloudWatch | AWS monitoring | Oussama | `infra/ops/template.yaml` | verified 2026-11-24 (both `ec-selfwatch-*` alarms reached ALARM) | An `electioncloud-*` alarm from Zelmati's EC2 routed to the Lambda |
-| AWS | Lambda function URL (test only) | Receives OCI fallback notifications during rehearsal | Oussama | `infra/ops/test-webhook.yaml` | verified 2026-11-24 (stack `electioncloud-test-webhook`) | Delivery from the OCI function, delete after the demo |
+| AWS | Lambda function URL (test only) | Receives OCI fallback notifications during rehearsal | Oussama | `infra/ops/test-webhook.yaml` | verified 2026-11-24 (stack `electioncloud-test-webhook`), delivery from the OCI function verified 2026-11-25 | Delete after the demo |
 | Oracle Cloud | OCI Compute standby | Standby tally | Mesbah | code (local tests) | code | Standby tally equal to primary |
-| Oracle Cloud | OCI Functions | Supplemental checks, fallback notifications | Mesbah | code (setup documented) | code | Invocation with the fallback event, one notification on repeat |
+| Oracle Cloud | OCI Functions | Supplemental checks, fallback notifications | Mesbah | code (setup documented) | fallback route verified 2026-11-25 with Oussama (one notification, replay answered `duplicate`) | Supplemental health checks |
 | Oracle Cloud | OCI Monitoring | Google service monitoring | Mesbah | code (setup documented) | code | Signal that triggers the fallback |
 | Shared | GitHub Actions CI | PR checks | Oussama | `.github/workflows/ci.yml` | code (first run pending) | Green run on a PR |
 

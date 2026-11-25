@@ -78,12 +78,12 @@ Fill these in when resources are approved. A resource without a named owner does
 | AWS `electioncloud-ops` stack (eu-north-1) | Oussama, 2026-11-24 | Oussama | `aws cloudformation delete-stack --stack-name electioncloud-ops` | |
 | AWS `electioncloud-test-webhook` stack (eu-north-1, includes one Secrets Manager secret and one DynamoDB table) | Oussama, 2026-11-24 | Oussama | `aws cloudformation delete-stack --stack-name electioncloud-test-webhook` | |
 | AWS deploy bucket `electioncloud-ops-deploy-<account>-eu-north-1` | Oussama, 2026-11-24 | Oussama | `aws s3 rb "s3://$BUCKET" --force` after both stacks are gone | |
-| AWS fallback caller secret `electioncloud/oci-fallback-caller` (Secrets Manager) | not created yet | Oussama | `aws secretsmanager delete-secret --secret-id electioncloud/oci-fallback-caller` | |
+| AWS fallback caller secret `electioncloud/oci-fallback-caller` (Secrets Manager) | Oussama, 2026-11-25 | Oussama | `aws secretsmanager delete-secret --secret-id electioncloud/oci-fallback-caller` | |
 | Oracle standby VM and functions | TBD | TBD | TBD | |
 
 ## Evidence collected
 
-One line per piece of sanitized evidence, with owner, date and commit. All AWS checks below ran in CloudShell, eu-north-1, on commit `2fdae78`, against the stack `electioncloud-ops` with no fallback route.
+One line per piece of sanitized evidence, with owner, date and commit. All AWS checks below ran in CloudShell, eu-north-1, on commit `2fdae78`, against the stack `electioncloud-ops`. The fallback route was added to the stack on 2026-11-25; checks before that ran without it.
 
 | Date | Owner | Check | Observed |
 | --- | --- | --- | --- |
@@ -95,11 +95,17 @@ One line per piece of sanitized evidence, with owner, date and commit. All AWS c
 | 2026-11-24 | Oussama | Router logs for the three calls | Only `sent`, `duplicate`, `invalid_event` lines, no voter or ballot data |
 | 2026-11-24 | Oussama | SNS failure (topic ARN suffixed with `-missing`, then restored) | `NotificationFailed`, logs `primary_failed` (`AuthorizationErrorException`) then `notification_failed`, both `ec-selfwatch-*` alarms went to ALARM and emailed, configuration restored and checked |
 | 2026-11-24 | Oussama | Test webhook (`test-webhook.yaml`), first version | POST without or with a wrong bearer 401, with the right bearer 200, GET 405 (GET also checked by Mesbah from the OCI VM) |
+| 2026-11-25 | Oussama | OCI fallback route `/recovery/fallback` (af-casablanca-1), POST without bearer from CloudShell | `401 {"error": "bearer credential required"}`. This check runs before the caller secret is read, so it does not prove the Vault setup |
+| 2026-11-25 | Oussama | Stack updated with `FallbackUrl` and `FallbackSecretArn` (`electioncloud/oci-fallback-caller`) | `UPDATE_COMPLETE`, router environment shows both values, SNS topic unchanged |
+| 2026-11-25 | Oussama, Mesbah | SNS failure with fallback enabled (`evt-rehearsal-1795577482`) | `NotificationFailed`, logs `primary_failed` (`AuthorizationErrorException`), `fallback_failed` (HTTP 503 from the OCI route), `notification_failed`. No call reached the test webhook. Both `ec-selfwatch-*` ALARM emails received at the demo address. Configuration restored and checked. Cause on the OCI side to be read in the function log |
+| 2026-11-25 | Oussama, Mesbah | Same test after Mesbah checked the secret OCIDs (`evt-rehearsal-1795578182`, 03:43 UTC) | Same result: HTTP 503 from the OCI route about 3 s after the call, `notification_failed`, no call reached the test webhook. Configuration restored and checked |
+| 2026-11-25 | Oussama, Mesbah | Same test after Mesbah fixed the IAM policy for the caller secret (`evt-rehearsal-1795578727`, 03:52 UTC) | Route gives 403 to a wrong bearer, and the router's bearer was accepted (no 403), so the caller secret matches on both sides. Still HTTP 503 after the check, `notification_failed`, no call reached the test webhook. Mesbah's log: the PUT to the `electioncloud-fallback-events` bucket got 404, `fallback_error` `ServiceError`. Configuration restored and checked |
+| 2026-11-25 | Oussama, Mesbah | Same test after Mesbah granted the function access to the bucket objects (`evt-rehearsal-1795579110`, 03:58 UTC) | Lambda result `{"result": "sent", "route": "fallback"}`. Router logs `primary_failed` (`AuthorizationErrorException`) then `sent` `"route": "fallback"`. Test webhook logs one `received` line for that ID, without the `summary` field. Configuration restored and checked |
+| 2026-11-25 | Mesbah, Oussama | Replay of the same POST directly on the OCI route (`evt-rehearsal-1795579110`, 04:00:33 UTC) | OCI answered 200 `{"status": "duplicate"}`. The test webhook got no new call and still has exactly one `received` line for that ID |
 | 2026-11-25 | Oussama | Test webhook with Idempotency-Key deduplication, same key posted twice | First POST 200 `"duplicate": false` and a `received` log line, replay 200 `"duplicate": true` and only a `duplicate` log line, no key 400, wrong bearer 401 |
 
 ## Still pending
 
 List every check that was only done locally or with mocks, with the owner who can close it. The starting point is the "Status" column of `DEPLOYMENT-INVENTORY.md`.
 
-- OCI fallback route: redo the SNS failure with `FallbackUrl` and `FallbackSecretArn` set, expect `"route": "fallback"` and a single webhook delivery on replay. Oussama and Mesbah.
 - An `electioncloud-*` CloudWatch alarm from the Kafka or tally EC2 reaching the router through EventBridge. Zelmati and Oussama.

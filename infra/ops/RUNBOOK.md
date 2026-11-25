@@ -88,7 +88,9 @@ One line per piece of sanitized evidence, with owner, date and commit. All AWS c
 | Date | Owner | Check | Observed |
 | --- | --- | --- | --- |
 | 2026-11-24 | Oussama | Stack deploy, SNS email subscription | `Successfully created/updated stack`, subscription confirmed |
-| 2026-11-24 | Oussama | Same alert sent twice (`evt-demo-1795486519`, worker, critical) | First call `{"result": "sent", "route": "primary"}`, second `{"result": "duplicate"}` (number of emails received still to confirm) |
+| 2026-11-24 | Oussama | Same alert sent twice (`evt-demo-1795486519`, worker, critical) | First call `{"result": "sent", "route": "primary"}`, second `{"result": "duplicate"}`, no email found at the first test address |
+| 2026-11-25 | Oussama | Same alert sent twice to the demo address (`evt-demo-1795567380`, worker, critical) | First call `{"result": "sent", "route": "primary"}`, second `{"result": "duplicate"}`, exactly one email "ElectionCloud worker firing" received |
+| 2026-11-24 | Oussama | Self-watch alarm emails during the SNS failure test | Both `ec-selfwatch-router-errors` and `ec-selfwatch-delivery-failed` ALARM emails received at the demo address |
 | 2026-11-24 | Oussama | Alert with a `voter_reference` field (`fixtures/invalid_voter_field.json`) | `{"result": "rejected", "reason": "Unexpected fields: voter_reference"}`, no email |
 | 2026-11-24 | Oussama | Router logs for the three calls | Only `sent`, `duplicate`, `invalid_event` lines, no voter or ballot data |
 | 2026-11-24 | Oussama | SNS failure (topic ARN suffixed with `-missing`, then restored) | `NotificationFailed`, logs `primary_failed` (`AuthorizationErrorException`) then `notification_failed`, both `ec-selfwatch-*` alarms went to ALARM and emailed, configuration restored and checked |

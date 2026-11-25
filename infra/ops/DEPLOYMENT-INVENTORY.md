@@ -2,7 +2,7 @@
 
 Built from the architecture section of `TEAM-PLAN.md` and what exists in the repository on 2026-11-21. The project fiche itself was not available when this was written, so the "required" column has to be checked against it line by line before the final handoff.
 
-Status words: **none** means nothing in the repository yet, **code** means code or scripts exist but nothing was verified in a cloud account, **verified** means the owner supplied sanitized evidence. Nothing is marked verified at the moment.
+Status words: **none** means nothing in the repository yet, **code** means code or scripts exist but nothing was verified in a cloud account, **verified** means the owner supplied sanitized evidence. Only Oussama's AWS rows are verified so far (evidence in `RUNBOOK.md`); the other rows still reflect 2026-11-21 and their owners should update them.
 
 | Provider | Service | Role | Owner | In repo | Status | Evidence still to collect |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -15,8 +15,9 @@ Status words: **none** means nothing in the repository yet, **code** means code 
 | Azure | Azure Monitor | Azure service monitoring | Zakaria | none | none | Alert rules or dashboard, exported |
 | AWS | EC2 for Kafka | Broker, SASL_SSL, ACLs | Zelmati | none (`infra/aws/` absent) | none | Producer and consumer test through the private route |
 | AWS | EC2 for tally | Post-close count | Zelmati | none | none | Tally output matching the fixture |
-| AWS | Lambda | Technical alerts, admin notifications | Oussama | `infra/ops/lambda/` | code (local tests) | Run against an authorized test destination |
-| AWS | CloudWatch | AWS monitoring | Oussama | `infra/ops/template.yaml` | code (lint only) | Alarms in OK or ALARM, alarm routed to Lambda |
+| AWS | Lambda | Technical alerts, admin notifications | Oussama | `infra/ops/lambda/` | verified 2026-11-24 (stack `electioncloud-ops`, eu-north-1) | OCI fallback route, see `RUNBOOK.md` |
+| AWS | CloudWatch | AWS monitoring | Oussama | `infra/ops/template.yaml` | verified 2026-11-24 (both `ec-selfwatch-*` alarms reached ALARM) | An `electioncloud-*` alarm from Zelmati's EC2 routed to the Lambda |
+| AWS | Lambda function URL (test only) | Receives OCI fallback notifications during rehearsal | Oussama | `infra/ops/test-webhook.yaml` | verified 2026-11-24 (stack `electioncloud-test-webhook`) | Delivery from the OCI function, delete after the demo |
 | Oracle Cloud | OCI Compute standby | Standby tally | Mesbah | code (local tests) | code | Standby tally equal to primary |
 | Oracle Cloud | OCI Functions | Supplemental checks, fallback notifications | Mesbah | code (setup documented) | code | Invocation with the fallback event, one notification on repeat |
 | Oracle Cloud | OCI Monitoring | Google service monitoring | Mesbah | code (setup documented) | code | Signal that triggers the fallback |

@@ -20,7 +20,7 @@ Owner: Oussama. Fill this in when you cut a release. Keep one copy per release t
 | Kafka EC2 | Zelmati | broker DNS and port, TLS, ACL scope | | | |
 | Tally EC2 | Zelmati | tally command, result schema | | | |
 | Oracle standby and functions | Mesbah | tally invocation, fallback event | | | |
-| Lambda alerts | Oussama | alert event schema | `2fdae78` | Yes, AWS eu-north-1, stacks `electioncloud-ops` and `electioncloud-test-webhook` | OCI fallback route not deployed yet (Mesbah) |
+| Lambda alerts | Oussama | alert event schema | `2fdae78` | Yes, AWS eu-north-1, stacks `electioncloud-ops` and `electioncloud-test-webhook` | None. OCI fallback verified 2026-11-25 with Mesbah (`RUNBOOK.md`) |
 
 ### Azure hosting choice
 

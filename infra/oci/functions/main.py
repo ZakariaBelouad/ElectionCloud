@@ -182,6 +182,6 @@ def dispatch(method, headers, body):
 def handler(ctx, data=None):
     from fdk.response import Response
 
-    payload, status = dispatch(ctx.Method(), ctx.HttpHeaders() or {}, data.read(4097) if data else b"")
+    payload, status = dispatch(ctx.Method(), ctx.HTTPHeaders() or {}, data.read(4097) if data else b"")
     return Response(ctx, response_data=json.dumps(payload), status_code=status,
                     headers={"Content-Type": "application/json"})
